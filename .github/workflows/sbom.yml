@@ -73,6 +73,11 @@ jobs:
         id: pull
         continue-on-error: true
         run: |
+          set -e
+          # Initialize outputs
+          echo "pulled=false" >> $GITHUB_OUTPUT
+          echo "image=" >> $GITHUB_OUTPUT
+          
           # Try tags in order of preference
           TAGS="${{ steps.meta.outputs.tags }}"
           IMAGE_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}"
@@ -96,16 +101,18 @@ jobs:
           while IFS= read -r tag; do
             tag=$(echo "$tag" | tr -d ' ')
             # Skip empty tags, full SHA (40 chars), and current full SHA
+            # Also skip tags that are just the SHA without a prefix
             if [ -n "$tag" ] && \
                [ "$tag" != "${CURRENT_SHA}" ] && \
                ! echo "$tag" | grep -qE '^[a-f0-9]{40}$' && \
-               ! echo "$tag" | grep -qE ':[a-f0-9]{40}$'; then
+               ! echo "$tag" | grep -qE ':[a-f0-9]{40}$' && \
+               ! echo "$IMAGE_BASE:${tag}" | grep -qE ':[a-f0-9]{40}$'; then
               TAG_CANDIDATES+=("$tag")
             fi
           done <<< "$TAGS"
           
-          # Then try common patterns
-          if [ -n "$CURRENT_REF" ] && [ "$CURRENT_REF" != "null" ]; then
+          # Then try common patterns (but NOT full SHA)
+          if [ -n "$CURRENT_REF" ] && [ "$CURRENT_REF" != "null" ] && [ "$CURRENT_REF" != "" ]; then
             TAG_CANDIDATES+=("${CURRENT_REF}-${SHORT_SHA}")
             TAG_CANDIDATES+=("${CURRENT_REF}")
           fi
@@ -120,28 +127,41 @@ jobs:
           echo ""
           
           MAX_RETRIES=3
+          PULLED=false
           for tag in "${TAG_CANDIDATES[@]}"; do
             if [ -z "$tag" ]; then
+              continue
+            fi
+            
+            # Double-check this isn't a full SHA
+            if echo "${tag}" | grep -qE '^[a-f0-9]{40}$'; then
+              echo "⚠️ Skipping full SHA tag: ${tag}"
               continue
             fi
             
             echo "Attempting to pull: ${IMAGE_BASE}:${tag}"
             RETRY_COUNT=0
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              # Use docker pull with explicit error output for debugging
-              if docker pull "${IMAGE_BASE}:${tag}" 2>&1; then
-                echo "✅ Successfully pulled image with tag: ${tag}"
-                echo "tag=${tag}" >> $GITHUB_OUTPUT
-                echo "image=${IMAGE_BASE}:${tag}" >> $GITHUB_OUTPUT
-                echo "pulled=true" >> $GITHUB_OUTPUT
-                
-                # Get image digest for more reliable reference
-                DIGEST=$(docker inspect "${IMAGE_BASE}:${tag}" --format='{{index .RepoDigests 0}}' 2>/dev/null || echo "")
-                if [ -n "$DIGEST" ]; then
-                  echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
-                  echo "Using image digest: ${DIGEST}"
+              # Use docker pull and capture exit code
+              if docker pull "${IMAGE_BASE}:${tag}" >/dev/null 2>&1; then
+                # Verify the image actually exists locally
+                if docker image inspect "${IMAGE_BASE}:${tag}" >/dev/null 2>&1; then
+                  echo "✅ Successfully pulled and verified image with tag: ${tag}"
+                  echo "tag=${tag}" >> $GITHUB_OUTPUT
+                  echo "image=${IMAGE_BASE}:${tag}" >> $GITHUB_OUTPUT
+                  echo "pulled=true" >> $GITHUB_OUTPUT
+                  
+                  # Get image digest for more reliable reference
+                  DIGEST=$(docker inspect "${IMAGE_BASE}:${tag}" --format='{{index .RepoDigests 0}}' 2>/dev/null || echo "")
+                  if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
+                    echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+                    echo "Using image digest: ${DIGEST}"
+                  fi
+                  PULLED=true
+                  break 2
+                else
+                  echo "  Image pulled but not found locally, retrying..."
                 fi
-                exit 0
               else
                 echo "  Pull failed (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)"
               fi
@@ -153,28 +173,53 @@ jobs:
             echo ""
           done
           
-          echo "⚠️ Failed to pull image with any tag format"
-          echo "Tried ${#TAG_CANDIDATES[@]} tags: ${TAG_CANDIDATES[*]}"
-          echo "pulled=false" >> $GITHUB_OUTPUT
-          echo "image=" >> $GITHUB_OUTPUT
+          if [ "$PULLED" != "true" ]; then
+            echo "⚠️ Failed to pull image with any tag format"
+            echo "Tried ${#TAG_CANDIDATES[@]} tags: ${TAG_CANDIDATES[*]}"
+            echo "pulled=false" >> $GITHUB_OUTPUT
+            echo "image=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Verify image reference before SBOM generation
         if: steps.pull.outputs.pulled == 'true'
         id: verify-image
         run: |
+          # Prefer digest if available, otherwise use image tag
           IMAGE_REF="${{ steps.pull.outputs.digest || steps.pull.outputs.image }}"
-          if [ -z "$IMAGE_REF" ] || [ "$IMAGE_REF" == "null" ]; then
-            echo "❌ Invalid image reference"
+          
+          if [ -z "$IMAGE_REF" ] || [ "$IMAGE_REF" == "null" ] || [ "$IMAGE_REF" == "" ]; then
+            echo "❌ Invalid image reference: empty or null"
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 1
           fi
-          # Check if it's a full SHA (40 chars) - these usually don't exist as tags
+          
+          echo "Verifying image reference: $IMAGE_REF"
+          
+          # Check if it's a full SHA tag (40 hex chars after colon) - these usually don't exist as tags
           if echo "$IMAGE_REF" | grep -qE ':[a-f0-9]{40}$'; then
-            echo "⚠️ Image reference appears to be a full SHA, which may not exist"
+            echo "❌ Image reference contains a full SHA tag (40 chars), which likely doesn't exist"
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 1
           fi
-          echo "✅ Image reference looks valid: $IMAGE_REF"
+          
+          # Check if it's just a SHA without colon (standalone SHA)
+          if echo "$IMAGE_REF" | grep -qE '^[a-f0-9]{40}$'; then
+            echo "❌ Image reference is a standalone SHA, invalid"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Verify the image actually exists locally (if it was pulled)
+          if ! echo "$IMAGE_REF" | grep -qE '@sha256:'; then
+            # It's a tag reference, verify it exists
+            if ! docker image inspect "$IMAGE_REF" >/dev/null 2>&1; then
+              echo "❌ Image reference does not exist locally: $IMAGE_REF"
+              echo "valid=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          fi
+          
+          echo "✅ Image reference looks valid and exists: $IMAGE_REF"
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "image=$IMAGE_REF" >> $GITHUB_OUTPUT
 
