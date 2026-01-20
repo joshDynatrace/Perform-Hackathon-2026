@@ -65,61 +65,85 @@ jobs:
           # Try tags in order of preference
           TAGS="${{ steps.meta.outputs.tags }}"
           IMAGE_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}"
+          CURRENT_REF="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+          CURRENT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          SHORT_SHA="${CURRENT_SHA:0:7}"
           
-          # Extract first tag (most specific)
-          FIRST_TAG=$(echo "$TAGS" | head -n1 | tr -d ' ')
-          echo "Attempting to pull: ${IMAGE_BASE}:${FIRST_TAG}"
+          echo "Available tags from metadata:"
+          echo "$TAGS"
+          echo ""
+          echo "Trying to pull image with various tag formats..."
           
-          # Try pulling with retries (images might still be uploading)
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if docker pull "${IMAGE_BASE}:${FIRST_TAG}"; then
-              echo "tag=${FIRST_TAG}" >> $GITHUB_OUTPUT
-              echo "Successfully pulled image with tag: ${FIRST_TAG}"
-              exit 0
+          # Try tags in order: branch-SHA, branch name, latest, full SHA
+          TAG_CANDIDATES=(
+            "${CURRENT_REF}-${SHORT_SHA}"
+            "${CURRENT_REF}"
+            "latest"
+            "${CURRENT_SHA}"
+          )
+          
+          # Also try tags from metadata action
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              TAG_CANDIDATES+=("$tag")
             fi
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-              echo "Pull failed, retrying in 10 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-              sleep 10
+          done <<< "$TAGS"
+          
+          MAX_RETRIES=3
+          for tag in "${TAG_CANDIDATES[@]}"; do
+            tag=$(echo "$tag" | tr -d ' ')
+            if [ -z "$tag" ]; then
+              continue
             fi
+            
+            echo "Attempting to pull: ${IMAGE_BASE}:${tag}"
+            RETRY_COUNT=0
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if docker pull "${IMAGE_BASE}:${tag}" 2>/dev/null; then
+                echo "✅ Successfully pulled image with tag: ${tag}"
+                echo "tag=${tag}" >> $GITHUB_OUTPUT
+                echo "image=${IMAGE_BASE}:${tag}" >> $GITHUB_OUTPUT
+                
+                # Get image digest for more reliable reference
+                DIGEST=$(docker inspect "${IMAGE_BASE}:${tag}" --format='{{index .RepoDigests 0}}' 2>/dev/null || echo "")
+                if [ -n "$DIGEST" ]; then
+                  echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+                  echo "Using image digest: ${DIGEST}"
+                fi
+                exit 0
+              fi
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                sleep 5
+              fi
+            done
           done
           
-          # Fallback to 'latest' for main branch
-          CURRENT_REF="${{ github.event.workflow_run.head_branch || github.ref_name }}"
-          if [[ "$CURRENT_REF" == "main" ]]; then
-            echo "Trying 'latest' tag as fallback..."
-            if docker pull "${IMAGE_BASE}:latest"; then
-              echo "tag=latest" >> $GITHUB_OUTPUT
-              echo "Successfully pulled image with tag: latest"
-            else
-              echo "Failed to pull image with any tag."
-              exit 1
-            fi
-          else
-            echo "Failed to pull image with tag: ${FIRST_TAG}"
-            exit 1
-          fi
+          echo "❌ Failed to pull image with any tag format"
+          echo "Tried tags: ${TAG_CANDIDATES[*]}"
+          exit 1
 
       - name: Generate SBOM with Syft
+        continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ steps.pull.outputs.tag }}
+          image: ${{ steps.pull.outputs.image }}
           format: spdx-json
           output-file: sbom-${{ matrix.service }}.json
 
       - name: Generate SBOM (SPDX format)
+        continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ steps.pull.outputs.tag }}
+          image: ${{ steps.pull.outputs.image }}
           format: spdx
           output-file: sbom-${{ matrix.service }}.spdx
 
       - name: Generate SBOM (CycloneDX format)
+        continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ steps.pull.outputs.tag }}
+          image: ${{ steps.pull.outputs.image }}
           format: cyclonedx-json
           output-file: sbom-${{ matrix.service }}.cdx.json
 
