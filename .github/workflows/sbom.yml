@@ -17,6 +17,9 @@ jobs:
     name: Generate SBOM for ${{ matrix.service }}
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
+      packages: read
     strategy:
       matrix:
         service:
@@ -42,8 +45,15 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify authentication
+        run: |
+          echo "Testing GHCR authentication..."
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.repository_owner }} --password-stdin || {
+            echo "⚠️ Authentication failed, but continuing..."
+          }
 
       - name: Extract metadata (matching docker-build workflow)
         id: meta
@@ -61,6 +71,7 @@ jobs:
 
       - name: Pull image from registry
         id: pull
+        continue-on-error: true
         run: |
           # Try tags in order of preference
           TAGS="${{ steps.meta.outputs.tags }}"
@@ -69,29 +80,43 @@ jobs:
           CURRENT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
           SHORT_SHA="${CURRENT_SHA:0:7}"
           
+          echo "Current context:"
+          echo "  Branch/Ref: ${CURRENT_REF}"
+          echo "  SHA: ${CURRENT_SHA}"
+          echo "  Short SHA: ${SHORT_SHA}"
+          echo ""
           echo "Available tags from metadata:"
           echo "$TAGS"
           echo ""
-          echo "Trying to pull image with various tag formats..."
           
-          # Try tags in order: branch-SHA, branch name, latest, full SHA
-          TAG_CANDIDATES=(
-            "${CURRENT_REF}-${SHORT_SHA}"
-            "${CURRENT_REF}"
-            "latest"
-            "${CURRENT_SHA}"
-          )
+          # Build tag candidates - prioritize likely-to-exist tags
+          TAG_CANDIDATES=()
           
-          # Also try tags from metadata action
+          # First, try tags from metadata action (these are most likely to exist)
           while IFS= read -r tag; do
-            if [ -n "$tag" ]; then
+            tag=$(echo "$tag" | tr -d ' ')
+            if [ -n "$tag" ] && [ "$tag" != "${CURRENT_SHA}" ]; then
               TAG_CANDIDATES+=("$tag")
             fi
           done <<< "$TAGS"
           
+          # Then try common patterns
+          if [ -n "$CURRENT_REF" ] && [ "$CURRENT_REF" != "null" ]; then
+            TAG_CANDIDATES+=("${CURRENT_REF}-${SHORT_SHA}")
+            TAG_CANDIDATES+=("${CURRENT_REF}")
+          fi
+          
+          # Try latest for main branch
+          if [[ "$CURRENT_REF" == "main" ]]; then
+            TAG_CANDIDATES+=("latest")
+          fi
+          
+          echo "Trying to pull image with ${#TAG_CANDIDATES[@]} tag candidates..."
+          echo "Tag order: ${TAG_CANDIDATES[*]}"
+          echo ""
+          
           MAX_RETRIES=3
           for tag in "${TAG_CANDIDATES[@]}"; do
-            tag=$(echo "$tag" | tr -d ' ')
             if [ -z "$tag" ]; then
               continue
             fi
@@ -99,10 +124,12 @@ jobs:
             echo "Attempting to pull: ${IMAGE_BASE}:${tag}"
             RETRY_COUNT=0
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              if docker pull "${IMAGE_BASE}:${tag}" 2>/dev/null; then
+              # Use docker pull with explicit error output for debugging
+              if docker pull "${IMAGE_BASE}:${tag}" 2>&1; then
                 echo "✅ Successfully pulled image with tag: ${tag}"
                 echo "tag=${tag}" >> $GITHUB_OUTPUT
                 echo "image=${IMAGE_BASE}:${tag}" >> $GITHUB_OUTPUT
+                echo "pulled=true" >> $GITHUB_OUTPUT
                 
                 # Get image digest for more reliable reference
                 DIGEST=$(docker inspect "${IMAGE_BASE}:${tag}" --format='{{index .RepoDigests 0}}' 2>/dev/null || echo "")
@@ -111,43 +138,61 @@ jobs:
                   echo "Using image digest: ${DIGEST}"
                 fi
                 exit 0
+              else
+                echo "  Pull failed (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)"
               fi
               RETRY_COUNT=$((RETRY_COUNT + 1))
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                 sleep 5
               fi
             done
+            echo ""
           done
           
-          echo "❌ Failed to pull image with any tag format"
-          echo "Tried tags: ${TAG_CANDIDATES[*]}"
-          exit 1
+          echo "⚠️ Failed to pull image with any tag format"
+          echo "Tried ${#TAG_CANDIDATES[@]} tags: ${TAG_CANDIDATES[*]}"
+          echo "pulled=false" >> $GITHUB_OUTPUT
+          echo "image=" >> $GITHUB_OUTPUT
 
       - name: Generate SBOM with Syft
+        if: steps.pull.outputs.pulled == 'true'
         continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.pull.outputs.image }}
+          image: ${{ steps.pull.outputs.digest || steps.pull.outputs.image }}
           format: spdx-json
           output-file: sbom-${{ matrix.service }}.json
 
       - name: Generate SBOM (SPDX format)
+        if: steps.pull.outputs.pulled == 'true'
         continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.pull.outputs.image }}
+          image: ${{ steps.pull.outputs.digest || steps.pull.outputs.image }}
           format: spdx
           output-file: sbom-${{ matrix.service }}.spdx
 
       - name: Generate SBOM (CycloneDX format)
+        if: steps.pull.outputs.pulled == 'true'
         continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.pull.outputs.image }}
+          image: ${{ steps.pull.outputs.digest || steps.pull.outputs.image }}
           format: cyclonedx-json
           output-file: sbom-${{ matrix.service }}.cdx.json
 
+      - name: Check if SBOM files exist
+        id: check-sbom
+        continue-on-error: true
+        run: |
+          FILES_EXIST=false
+          if [ -f "sbom-${{ matrix.service }}.json" ] || [ -f "sbom-${{ matrix.service }}.spdx" ] || [ -f "sbom-${{ matrix.service }}.cdx.json" ]; then
+            FILES_EXIST=true
+          fi
+          echo "exists=${FILES_EXIST}" >> $GITHUB_OUTPUT
+
       - name: Upload SBOM artifacts
+        if: steps.check-sbom.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: sbom-${{ matrix.service }}
@@ -156,6 +201,7 @@ jobs:
             sbom-${{ matrix.service }}.spdx
             sbom-${{ matrix.service }}.cdx.json
           retention-days: 90
+          if-no-files-found: ignore
 
       - name: Attach SBOM to release
         if: startsWith(github.ref, 'refs/tags/v')

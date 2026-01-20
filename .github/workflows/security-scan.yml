@@ -22,6 +22,9 @@ jobs:
     name: Security Scan (${{ matrix.service }})
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    permissions:
+      contents: read
+      packages: read
     strategy:
       matrix:
         service:
@@ -47,7 +50,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata (matching docker-build workflow)
@@ -74,29 +77,43 @@ jobs:
           CURRENT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
           SHORT_SHA="${CURRENT_SHA:0:7}"
           
+          echo "Current context:"
+          echo "  Branch/Ref: ${CURRENT_REF}"
+          echo "  SHA: ${CURRENT_SHA}"
+          echo "  Short SHA: ${SHORT_SHA}"
+          echo ""
           echo "Available tags from metadata:"
           echo "$TAGS"
           echo ""
-          echo "Trying to pull image with various tag formats..."
           
-          # Try tags in order: branch-SHA, branch name, latest, full SHA
-          TAG_CANDIDATES=(
-            "${CURRENT_REF}-${SHORT_SHA}"
-            "${CURRENT_REF}"
-            "latest"
-            "${CURRENT_SHA}"
-          )
+          # Build tag candidates - prioritize likely-to-exist tags
+          TAG_CANDIDATES=()
           
-          # Also try tags from metadata action
+          # First, try tags from metadata action (these are most likely to exist)
           while IFS= read -r tag; do
-            if [ -n "$tag" ]; then
+            tag=$(echo "$tag" | tr -d ' ')
+            if [ -n "$tag" ] && [ "$tag" != "${CURRENT_SHA}" ]; then
               TAG_CANDIDATES+=("$tag")
             fi
           done <<< "$TAGS"
           
+          # Then try common patterns
+          if [ -n "$CURRENT_REF" ] && [ "$CURRENT_REF" != "null" ]; then
+            TAG_CANDIDATES+=("${CURRENT_REF}-${SHORT_SHA}")
+            TAG_CANDIDATES+=("${CURRENT_REF}")
+          fi
+          
+          # Try latest for main branch
+          if [[ "$CURRENT_REF" == "main" ]]; then
+            TAG_CANDIDATES+=("latest")
+          fi
+          
+          echo "Trying to pull image with ${#TAG_CANDIDATES[@]} tag candidates..."
+          echo "Tag order: ${TAG_CANDIDATES[*]}"
+          echo ""
+          
           MAX_RETRIES=3
           for tag in "${TAG_CANDIDATES[@]}"; do
-            tag=$(echo "$tag" | tr -d ' ')
             if [ -z "$tag" ]; then
               continue
             fi
@@ -104,20 +121,25 @@ jobs:
             echo "Attempting to pull: ${IMAGE_BASE}:${tag}"
             RETRY_COUNT=0
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              if docker pull "${IMAGE_BASE}:${tag}" 2>/dev/null; then
+              if docker pull "${IMAGE_BASE}:${tag}" 2>&1; then
                 echo "✅ Successfully pulled image with tag: ${tag}"
                 echo "tag=${tag}" >> $GITHUB_OUTPUT
                 echo "image=${IMAGE_BASE}:${tag}" >> $GITHUB_OUTPUT
+                echo "pulled=true" >> $GITHUB_OUTPUT
                 exit 0
+              else
+                echo "  Pull failed (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)"
               fi
               RETRY_COUNT=$((RETRY_COUNT + 1))
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                 sleep 5
               fi
             done
+            echo ""
           done
           
           echo "⚠️ Could not pull image, will scan filesystem only"
+          echo "pulled=false" >> $GITHUB_OUTPUT
           echo "image=" >> $GITHUB_OUTPUT
 
       - name: Run Trivy vulnerability scanner (filesystem)
@@ -132,7 +154,7 @@ jobs:
           exit-code: '0'
 
       - name: Run Trivy vulnerability scanner (image)
-        if: steps.pull.outputs.image != ''
+        if: steps.pull.outputs.pulled == 'true'
         continue-on-error: true
         uses: aquasecurity/trivy-action@master
         with:
@@ -162,7 +184,7 @@ jobs:
 
       - name: Check if image SARIF exists
         id: check-image-sarif
-        if: steps.pull.outputs.image != ''
+        if: steps.pull.outputs.pulled == 'true'
         continue-on-error: true
         run: |
           if [ -f "trivy-results-${{ matrix.service }}-image.sarif" ]; then
@@ -172,7 +194,7 @@ jobs:
           fi
 
       - name: Upload Trivy image results to GitHub Security
-        if: always() && steps.pull.outputs.image != '' && steps.check-image-sarif.outputs.exists == 'true'
+        if: always() && steps.pull.outputs.pulled == 'true' && steps.check-image-sarif.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: 'trivy-results-${{ matrix.service }}-image.sarif'
@@ -189,7 +211,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Run Trivy scan (table format - image)
-        if: steps.pull.outputs.image != ''
+        if: steps.pull.outputs.pulled == 'true'
         continue-on-error: true
         uses: aquasecurity/trivy-action@master
         with:
