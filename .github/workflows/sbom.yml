@@ -95,7 +95,11 @@ jobs:
           # First, try tags from metadata action (these are most likely to exist)
           while IFS= read -r tag; do
             tag=$(echo "$tag" | tr -d ' ')
-            if [ -n "$tag" ] && [ "$tag" != "${CURRENT_SHA}" ]; then
+            # Skip empty tags, full SHA (40 chars), and current full SHA
+            if [ -n "$tag" ] && \
+               [ "$tag" != "${CURRENT_SHA}" ] && \
+               ! echo "$tag" | grep -qE '^[a-f0-9]{40}$' && \
+               ! echo "$tag" | grep -qE ':[a-f0-9]{40}$'; then
               TAG_CANDIDATES+=("$tag")
             fi
           done <<< "$TAGS"
@@ -154,32 +158,58 @@ jobs:
           echo "pulled=false" >> $GITHUB_OUTPUT
           echo "image=" >> $GITHUB_OUTPUT
 
-      - name: Generate SBOM with Syft
+      - name: Verify image reference before SBOM generation
         if: steps.pull.outputs.pulled == 'true'
+        id: verify-image
+        run: |
+          IMAGE_REF="${{ steps.pull.outputs.digest || steps.pull.outputs.image }}"
+          if [ -z "$IMAGE_REF" ] || [ "$IMAGE_REF" == "null" ]; then
+            echo "❌ Invalid image reference"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          # Check if it's a full SHA (40 chars) - these usually don't exist as tags
+          if echo "$IMAGE_REF" | grep -qE ':[a-f0-9]{40}$'; then
+            echo "⚠️ Image reference appears to be a full SHA, which may not exist"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "✅ Image reference looks valid: $IMAGE_REF"
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "image=$IMAGE_REF" >> $GITHUB_OUTPUT
+
+      - name: Generate SBOM with Syft
+        if: steps.pull.outputs.pulled == 'true' && steps.verify-image.outputs.valid == 'true'
         continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.pull.outputs.digest || steps.pull.outputs.image }}
+          image: ${{ steps.verify-image.outputs.image }}
           format: spdx-json
           output-file: sbom-${{ matrix.service }}.json
+          registry-username: ${{ github.repository_owner }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate SBOM (SPDX format)
-        if: steps.pull.outputs.pulled == 'true'
+        if: steps.pull.outputs.pulled == 'true' && steps.verify-image.outputs.valid == 'true'
         continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.pull.outputs.digest || steps.pull.outputs.image }}
+          image: ${{ steps.verify-image.outputs.image }}
           format: spdx
           output-file: sbom-${{ matrix.service }}.spdx
+          registry-username: ${{ github.repository_owner }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate SBOM (CycloneDX format)
-        if: steps.pull.outputs.pulled == 'true'
+        if: steps.pull.outputs.pulled == 'true' && steps.verify-image.outputs.valid == 'true'
         continue-on-error: true
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.pull.outputs.digest || steps.pull.outputs.image }}
+          image: ${{ steps.verify-image.outputs.image }}
           format: cyclonedx-json
           output-file: sbom-${{ matrix.service }}.cdx.json
+          registry-username: ${{ github.repository_owner }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check if SBOM files exist
         id: check-sbom
