@@ -10,7 +10,10 @@ resources:
   - roulette-deployment.yaml
   - dice-deployment.yaml
   - blackjack-deployment.yaml
+  - frontend-deployment.yaml
   - gateway-deployment.yaml
+  - scoring-deployment.yaml
+  - dashboard-deployment.yaml
   - ingress.yaml
 
 commonLabels:

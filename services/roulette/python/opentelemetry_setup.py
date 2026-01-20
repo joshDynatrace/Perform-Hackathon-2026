@@ -10,6 +10,8 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.semconv.resource import ResourceAttributes
+from opentelemetry.propagate import set_global_textmap
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 
 def initialize_telemetry(service_name, service_metadata=None):
@@ -49,6 +51,9 @@ def initialize_telemetry(service_name, service_metadata=None):
 
     # Set global tracer provider
     trace.set_tracer_provider(provider)
+    
+    # Configure W3C TraceContext propagator for trace context propagation
+    set_global_textmap(TraceContextTextMapPropagator())
 
     return trace.get_tracer(service_name)
 

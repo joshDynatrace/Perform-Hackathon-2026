@@ -17,10 +17,12 @@ spec:
   template:
     metadata:
       labels:
+
         app.kubernetes.io/name: {{ include "vegas-casino.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: dashboard
       annotations:
+        dt.owner: '{{ .Values.global.teamIdentifier }}'
         prometheus.io/scrape: "true"
         prometheus.io/port: "{{ .Values.dashboard.service.port }}"
         prometheus.io/path: "/health"
@@ -42,9 +44,14 @@ spec:
         - name: http
           containerPort: {{ .Values.dashboard.service.port }}
           protocol: TCP
+        - name: grpc
+          containerPort: {{ .Values.dashboard.service.grpcPort }}
+          protocol: TCP
         env:
         - name: PORT
           value: "{{ .Values.dashboard.service.port }}"
+        - name: GRPC_PORT
+          value: "{{ .Values.dashboard.service.grpcPort }}"
         - name: SERVICE_NAME
           value: "{{ .Values.dashboard.env.SERVICE_NAME }}"
         - name: OTEL_SERVICE_NAME

@@ -3,14 +3,14 @@ site_description: A microservices-based casino application designed for observab
 site_author: Vegas Casino Team
 site_url: https://vegas-casino.example.com
 
-repo_name: vegas-casino
-repo_url: https://github.com/vegas-casino/vegas-app
+repo_name: Perform-Hackathon-2026
+repo_url: https://github.com/dynatrace-oss/Perform-Hackathon-2026
 edit_uri: edit/main/docs/
 
 theme:
   name: material
   palette:
-    - scheme: default
+    - scheme: default               
       primary: purple
       accent: cyan
       toggle:
@@ -55,6 +55,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Getting Started': getting-started.md
   - Overview:
     - Project Overview: overview/index.md
     - Hackathon Context: overview/hackathon.md
@@ -73,7 +74,9 @@ nav:
     - Deployment Overview: deployment/index.md
     - Helm Charts: deployment/helm.md
     - Kubernetes Manifests: deployment/manifests.md
+    - k8s/ vs Helm Comparison: deployment/k8s-vs-helm.md
     - OpenFeature Operator: deployment/openfeature.md
+    - CI/CD and Releases: deployment/ci-cd.md
   - Contributing: contributing.md
 
 plugins:

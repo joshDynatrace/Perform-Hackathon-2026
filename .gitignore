@@ -46,3 +46,20 @@ scripts/
 site/
 .mkdocs_cache/
 docs/_build/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate.d/
+*.tfvars
+!*.tfvars.example
+
+# Temporary helper scripts and guides (not for repository)
+CREATE_PR_GUIDE.md
+PR_TITLE_AND_DESCRIPTION.md
+SECURITY_CLEANUP_GUIDE.md
+cleanup-terraform-state.sh
+push-and-create-pr.sh
+remove-sensitive-files-from-history.sh

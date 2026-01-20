@@ -31,12 +31,12 @@ if (!CASINO_URL || CASINO_URL.trim() === '') {
   process.exit(1);
 }
 
-// Game configurations
+// Game configurations - ensure all bet amounts are > 0 (minimum 10)
 const GAMES = [
-  { name: 'slots', path: '/slots.html', betAmount: 50, spins: 3 },
-  { name: 'roulette', path: '/roulette.html', betAmount: 100, spins: 2 },
-  { name: 'dice', path: '/dice.html', betAmount: 75, rolls: 3 },
-  { name: 'blackjack', path: '/blackjack.html', betAmount: 80, rounds: 2 }
+  { name: 'slots', path: '/slots.html', betAmount: Math.max(10, 50), spins: 3 },
+  { name: 'roulette', path: '/roulette.html', betAmount: Math.max(10, 100), spins: 2 },
+  { name: 'dice', path: '/dice.html', betAmount: Math.max(10, 75), rolls: 3 },
+  { name: 'blackjack', path: '/blackjack.html', betAmount: Math.max(10, 80), rounds: 2 }
 ];
 
 /**
@@ -48,6 +48,7 @@ function delay(ms) {
 
 /**
  * Simulate user entering the casino
+ * Sets username via localStorage and initializes user via API
  */
 async function enterCasino(page) {
   console.log(`🎰 [${USER_NAME}] Entering casino...`);
@@ -57,31 +58,39 @@ async function enterCasino(page) {
     await page.waitForLoadState('networkidle');
     await delay(DELAY_BETWEEN_ACTIONS);
 
-    // Fill in user information form using specific IDs from index.html
-    const usernameInput = page.locator('input#usernameInput');
-    if (await usernameInput.count() > 0) {
-      await usernameInput.fill(USER_NAME);
-      await delay(500);
+    // Set username in localStorage (the app uses localStorage for user identity)
+    await page.evaluate((username) => {
+      localStorage.setItem('vegas.username', username);
+      localStorage.removeItem('vegasUser'); // Remove old key if it exists
+    }, USER_NAME);
+
+    // Initialize user via API (this sets up balance and user data on the backend)
+    const initResponse = await page.request.post(`${CASINO_URL}/api/user/init`, {
+      data: {
+        Username: USER_NAME,
+        CustomerName: USER_NAME,
+        Email: USER_EMAIL,
+        CompanyName: USER_COMPANY,
+      },
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!initResponse.ok()) {
+      console.warn(`⚠️ [${USER_NAME}] User init API returned ${initResponse.status()}, continuing anyway...`);
+    } else {
+      const initData = await initResponse.json();
+      if (initData && typeof initData.balance === 'number') {
+        // Update localStorage with balance from server
+        await page.evaluate((balance) => {
+          localStorage.setItem('vegasBalance', String(balance));
+        }, initData.balance);
+      }
     }
 
-    const emailInput = page.locator('input#emailInput');
-    if (await emailInput.count() > 0) {
-      await emailInput.fill(USER_EMAIL);
-      await delay(500);
-    }
-
-    const companyInput = page.locator('input#companyNameInput');
-    if (await companyInput.count() > 0) {
-      await companyInput.fill(USER_COMPANY);
-      await delay(500);
-    }
-
-    // Click submit/enter button - look for the vault access button
-    const submitButton = page.locator('button:has-text("INITIATE VAULT ACCESS"), button:has-text("Enter"), button[id*="access"], button[id*="submit"]').first();
-    if (await submitButton.count() > 0) {
-      await submitButton.click();
-      await delay(DELAY_BETWEEN_ACTIONS * 2); // Wait for access sequence
-    }
+    // Wait a bit for the page to update with the new user info
+    await delay(500);
 
     console.log(`✅ [${USER_NAME}] Successfully entered casino`);
     return true;
@@ -147,19 +156,23 @@ async function playSlots(page, game) {
     await page.waitForLoadState('networkidle');
     await delay(1000);
     
+    // Ensure bet amount is valid (> 0, minimum 10)
+    const validBetAmount = Math.max(10, game.betAmount || 10);
+    
     // Set bet amount - slots uses a select dropdown
     const betSelect = page.locator('select#betAmount').first();
     if (await betSelect.count() > 0) {
       await betSelect.scrollIntoViewIfNeeded();
-      await betSelect.selectOption(game.betAmount.toString());
+      await betSelect.selectOption(validBetAmount.toString());
       await delay(1000);
-      console.log(`💰 [${USER_NAME}] Set bet amount to $${game.betAmount}`);
+      console.log(`💰 [${USER_NAME}] Set bet amount to $${validBetAmount}`);
     } else {
       // Fallback to any bet input
       const betInput = page.locator('input[id*="bet"], input[name*="bet"], input[type="number"]').first();
       if (await betInput.count() > 0) {
-        await betInput.fill(game.betAmount.toString());
+        await betInput.fill(validBetAmount.toString());
         await delay(1000);
+        console.log(`💰 [${USER_NAME}] Set bet amount to $${validBetAmount} (via input)`);
       }
     }
 
@@ -215,19 +228,23 @@ async function playRoulette(page, game) {
     await page.waitForLoadState('networkidle');
     await delay(1000);
     
+    // Ensure bet amount is valid (> 0, minimum 10)
+    const validBetAmount = Math.max(10, game.betAmount || 10);
+    
     // Set bet amount - roulette uses input#betAmount
     const betInput = page.locator('input#betAmount').first();
     if (await betInput.count() > 0) {
       await betInput.scrollIntoViewIfNeeded();
-      await betInput.fill(game.betAmount.toString());
+      await betInput.fill(validBetAmount.toString());
       await delay(1000);
-      console.log(`💰 [${USER_NAME}] Set bet amount to $${game.betAmount}`);
+      console.log(`💰 [${USER_NAME}] Set bet amount to $${validBetAmount}`);
     } else {
       // Fallback
       const fallbackInput = page.locator('input[id*="bet"], input[name*="bet"], input[type="number"]').first();
       if (await fallbackInput.count() > 0) {
-        await fallbackInput.fill(game.betAmount.toString());
+        await fallbackInput.fill(validBetAmount.toString());
         await delay(1000);
+        console.log(`💰 [${USER_NAME}] Set bet amount to $${validBetAmount} (via fallback)`);
       }
     }
 
@@ -387,44 +404,72 @@ async function playDice(page, game) {
     await page.waitForLoadState('networkidle');
     await delay(1000);
     
+    // Ensure bet amount is valid (> 0, minimum 10 for dice)
+    const desiredBet = Math.max(10, game.betAmount || 10);
+    
     // Set bet amount - dice uses select#betAmount with limited options (5, 10, 25, 50)
     const betSelect = page.locator('select#betAmount').first();
     if (await betSelect.count() > 0) {
       await betSelect.scrollIntoViewIfNeeded();
       await delay(500);
       
-      // Dice only supports: 5, 10, 25, 50 - find closest valid option
-      const validOptions = [5, 10, 25, 50];
-      let selectedBet = validOptions[0]; // Default to $5
+      // Dice only supports: 5, 10, 25, 50 - find closest valid option (minimum 10)
+      const validOptions = [10, 25, 50]; // Removed 5 to ensure minimum $10
+      let selectedBet = validOptions[0]; // Default to $10 (minimum)
       
       // Find the closest valid option that's <= the desired bet amount
       for (let i = validOptions.length - 1; i >= 0; i--) {
-        if (validOptions[i] <= game.betAmount) {
+        if (validOptions[i] <= desiredBet) {
           selectedBet = validOptions[i];
           break;
         }
       }
       
+      // Ensure we select at least $10
+      if (selectedBet < 10) {
+        selectedBet = 10;
+      }
+      
       try {
         await betSelect.selectOption(selectedBet.toString(), { timeout: 5000 });
         await delay(1000);
-        console.log(`💰 [${USER_NAME}] Set bet amount to $${selectedBet} (requested: $${game.betAmount})`);
+        console.log(`💰 [${USER_NAME}] Set bet amount to $${selectedBet} (requested: $${desiredBet})`);
       } catch (error) {
         console.log(`⚠️ [${USER_NAME}] Could not select bet amount ${selectedBet}, trying by label...`);
         // Try selecting by visible text
         try {
           await betSelect.selectOption({ label: `$${selectedBet}` });
           await delay(1000);
+          console.log(`💰 [${USER_NAME}] Set bet amount to $${selectedBet} (via label)`);
         } catch (e) {
-          console.log(`⚠️ [${USER_NAME}] Could not set bet amount, continuing anyway`);
+          console.log(`⚠️ [${USER_NAME}] Could not set bet amount, trying fallback...`);
+          // Last resort: try to set minimum $10 via JavaScript
+          try {
+            await page.evaluate((bet) => {
+              const select = document.getElementById('betAmount');
+              if (select) {
+                select.value = bet.toString();
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }, selectedBet);
+            await delay(1000);
+            console.log(`💰 [${USER_NAME}] Set bet amount to $${selectedBet} (via JavaScript)`);
+          } catch (jsError) {
+            console.log(`❌ [${USER_NAME}] Could not set bet amount, skipping game`);
+            return false;
+          }
         }
       }
     } else {
       // Fallback to input
       const betInput = page.locator('input[id*="bet"], input[name*="bet"], input[type="number"]').first();
       if (await betInput.count() > 0) {
-        await betInput.fill(game.betAmount.toString());
+        await betInput.fill(desiredBet.toString());
         await delay(1000);
+        console.log(`💰 [${USER_NAME}] Set bet amount to $${desiredBet} (via input fallback)`);
+      } else {
+        console.log(`❌ [${USER_NAME}] No bet input found, skipping game`);
+        return false;
       }
     }
 
@@ -512,85 +557,257 @@ async function playBlackjack(page, game) {
     await page.waitForLoadState('networkidle');
     await delay(2000); // Longer wait for blackjack to initialize
     
+    // Ensure bet amount is valid (> 0, minimum 10)
+    const targetBet = Math.max(10, game.betAmount || 10);
+    
     // Blackjack uses div chips with onclick handlers - look for chip divs
     // Chips are divs with class "chip" and onclick="setBet(amount)"
-    const chip50 = page.locator('div.chip.chip-50, div.chip:has-text("$50"), div[onclick*="setBet(50)"]').first();
-    const chip25 = page.locator('div.chip.chip-25, div.chip:has-text("$25"), div[onclick*="setBet(25)"]').first();
+    const chip5 = page.locator('div.chip.chip-5, div.chip:has-text("$5"), div[onclick*="setBet(5)"]').first();
     const chip10 = page.locator('div.chip.chip-10, div.chip:has-text("$10"), div[onclick*="setBet(10)"]').first();
+    const chip25 = page.locator('div.chip.chip-25, div.chip:has-text("$25"), div[onclick*="setBet(25)"]').first();
+    const chip50 = page.locator('div.chip.chip-50, div.chip:has-text("$50"), div[onclick*="setBet(50)"]').first();
     const chip100 = page.locator('div.chip.chip-100, div.chip:has-text("$100"), div[onclick*="setBet(100)"]').first();
     
-    // Click chips to reach target bet amount
-    let targetBet = game.betAmount;
+    // Click chips to reach target bet amount (ensure we place at least $10)
     let betPlaced = false;
+    let currentBet = 0;
     
-    // Try to place bet using appropriate chip
-    if (targetBet >= 100 && await chip100.count() > 0) {
-      await chip100.scrollIntoViewIfNeeded();
-      await delay(500);
-      await chip100.click({ timeout: 10000 });
-      await delay(1500);
-      console.log(`💰 [${USER_NAME}] Placed $100 bet`);
-      betPlaced = true;
-    } else if (targetBet >= 50 && await chip50.count() > 0) {
-      await chip50.scrollIntoViewIfNeeded();
-      await delay(500);
-      await chip50.click({ timeout: 10000 });
-      await delay(1500);
-      console.log(`💰 [${USER_NAME}] Placed $50 bet`);
-      betPlaced = true;
-    } else if (targetBet >= 25 && await chip25.count() > 0) {
-      await chip25.scrollIntoViewIfNeeded();
-      await delay(500);
-      await chip25.click({ timeout: 10000 });
-      await delay(1500);
-      console.log(`💰 [${USER_NAME}] Placed $25 bet`);
-      betPlaced = true;
-    } else if (await chip10.count() > 0) {
-      await chip10.scrollIntoViewIfNeeded();
-      await delay(500);
-      await chip10.click({ timeout: 10000 });
-      await delay(1500);
-      console.log(`💰 [${USER_NAME}] Placed $10 bet`);
-      betPlaced = true;
+    // Strategy: Place chips until we reach or exceed target bet (minimum $10)
+    while (currentBet < targetBet && !betPlaced) {
+      let chipClicked = false;
+      
+      // Try to place bet using appropriate chip (prioritize larger chips)
+      if (targetBet >= 100 && await chip100.count() > 0 && currentBet + 100 <= targetBet * 1.5) {
+        await chip100.scrollIntoViewIfNeeded();
+        await delay(300);
+        await chip100.click({ timeout: 10000 });
+        currentBet += 100;
+        chipClicked = true;
+        console.log(`💰 [${USER_NAME}] Added $100 chip (total: $${currentBet})`);
+      } else if (targetBet >= 50 && await chip50.count() > 0 && currentBet + 50 <= targetBet * 1.5) {
+        await chip50.scrollIntoViewIfNeeded();
+        await delay(300);
+        await chip50.click({ timeout: 10000 });
+        currentBet += 50;
+        chipClicked = true;
+        console.log(`💰 [${USER_NAME}] Added $50 chip (total: $${currentBet})`);
+      } else if (targetBet >= 25 && await chip25.count() > 0 && currentBet + 25 <= targetBet * 1.5) {
+        await chip25.scrollIntoViewIfNeeded();
+        await delay(300);
+        await chip25.click({ timeout: 10000 });
+        currentBet += 25;
+        chipClicked = true;
+        console.log(`💰 [${USER_NAME}] Added $25 chip (total: $${currentBet})`);
+      } else if (targetBet >= 10 && await chip10.count() > 0 && currentBet + 10 <= targetBet * 1.5) {
+        await chip10.scrollIntoViewIfNeeded();
+        await delay(300);
+        await chip10.click({ timeout: 10000 });
+        currentBet += 10;
+        chipClicked = true;
+        console.log(`💰 [${USER_NAME}] Added $10 chip (total: $${currentBet})`);
+      } else if (targetBet >= 5 && await chip5.count() > 0 && currentBet + 5 <= targetBet * 1.5) {
+        await chip5.scrollIntoViewIfNeeded();
+        await delay(300);
+        await chip5.click({ timeout: 10000 });
+        currentBet += 5;
+        chipClicked = true;
+        console.log(`💰 [${USER_NAME}] Added $5 chip (total: $${currentBet})`);
+      }
+      
+      // If we've placed at least the minimum bet ($10), we're good
+      if (currentBet >= 10) {
+        betPlaced = true;
+        await delay(2000); // Wait longer for bet to register and UI to update
+        // Verify bet is actually displayed on page
+        const currentBetDisplay = page.locator('#currentBet').first();
+        if (await currentBetDisplay.count() > 0) {
+          const betText = await currentBetDisplay.textContent().catch(() => '');
+          const displayedBet = parseInt(betText.replace(/[^0-9]/g, '')) || 0;
+          if (displayedBet >= 10) {
+            console.log(`✅ [${USER_NAME}] Bet placed and verified: $${displayedBet}`);
+          } else {
+            console.log(`⚠️ [${USER_NAME}] Bet placed but not yet displayed (waiting...)`);
+            await delay(2000); // Wait more for UI update
+          }
+        }
+        break;
+      }
+      
+      // If no chip was clicked and we haven't reached minimum, try one more time with $10
+      if (!chipClicked && currentBet < 10) {
+        if (await chip10.count() > 0) {
+          await chip10.scrollIntoViewIfNeeded();
+          await delay(300);
+          await chip10.click({ timeout: 10000 });
+          currentBet = 10;
+          betPlaced = true;
+          await delay(1000);
+          console.log(`✅ [${USER_NAME}] Minimum bet placed: $${currentBet}`);
+          break;
+        } else {
+          console.log(`⚠️ [${USER_NAME}] Could not place minimum bet of $10`);
+          break;
+        }
+      }
+      
+      // Safety: don't loop forever
+      if (currentBet >= targetBet || currentBet >= 1000) {
+        betPlaced = true;
+        break;
+      }
     }
     
-    if (!betPlaced) {
-      console.log(`⚠️ [${USER_NAME}] Could not place bet, trying to continue anyway`);
+    if (!betPlaced || currentBet < 10) {
+      console.log(`❌ [${USER_NAME}] Failed to place valid bet (minimum $10), skipping game`);
+      return false;
     }
 
     // Play multiple rounds
     for (let i = 0; i < game.rounds; i++) {
+      console.log(`🎲 [${USER_NAME}] Starting round ${i + 1} of ${game.rounds}`);
+      
+      // For rounds after the first, we may need to place a new bet
+      if (i > 0) {
+        await delay(2000); // Wait for previous round to complete
+        // Check if we need to place a new bet
+        const currentBetDisplay = page.locator('#currentBet').first();
+        if (await currentBetDisplay.count() > 0) {
+          const betText = await currentBetDisplay.textContent().catch(() => '');
+          const betValue = parseInt(betText.replace(/[^0-9]/g, '')) || 0;
+          if (betValue < 10) {
+            console.log(`💰 [${USER_NAME}] Round ${i + 1}: Placing new bet (current: $${betValue})...`);
+            // Place minimum bet for next round
+            if (await chip10.count() > 0) {
+              await chip10.scrollIntoViewIfNeeded();
+              await delay(300);
+              await chip10.click({ timeout: 10000 });
+              await delay(1500); // Wait for bet to register
+            }
+          }
+        }
+      }
+      
       // Wait a bit before dealing
       await delay(1000);
+      
+      // Verify bet is placed before dealing (check current bet display)
+      const currentBetDisplay = page.locator('#currentBet').first();
+      let verifiedBet = false;
+      let actualBetValue = 0;
+      if (await currentBetDisplay.count() > 0) {
+        const betText = await currentBetDisplay.textContent().catch(() => '');
+        actualBetValue = parseInt(betText.replace(/[^0-9]/g, '')) || 0;
+        if (actualBetValue >= 10) {
+          verifiedBet = true;
+          console.log(`✅ [${USER_NAME}] Round ${i + 1}: Verified bet placed: $${actualBetValue}`);
+        } else {
+          console.log(`⚠️ [${USER_NAME}] Round ${i + 1}: Bet not properly placed (current: $${actualBetValue}), placing minimum bet...`);
+          // Place minimum bet
+          if (await chip10.count() > 0) {
+            await chip10.scrollIntoViewIfNeeded();
+            await delay(300);
+            await chip10.click({ timeout: 10000 });
+            await delay(2000); // Wait longer for bet to register and button to update
+            // Re-check bet value
+            const betTextAfter = await currentBetDisplay.textContent().catch(() => '');
+            actualBetValue = parseInt(betTextAfter.replace(/[^0-9]/g, '')) || 0;
+            if (actualBetValue >= 10) {
+              verifiedBet = true;
+              console.log(`✅ [${USER_NAME}] Round ${i + 1}: Bet placed after retry: $${actualBetValue}`);
+            }
+          }
+        }
+      }
+      
+      if (!verifiedBet) {
+        console.log(`❌ [${USER_NAME}] Round ${i + 1}: Could not place valid bet, skipping round`);
+        continue;
+      }
       
       // Deal - use the specific dealButton ID
       const dealButton = page.locator('button#dealButton').first();
       if (await dealButton.count() > 0) {
-        const isDisabled = await dealButton.isDisabled().catch(() => false);
+        // Wait for button to be enabled (it might be updating after bet placement)
+        // Also check the button text to ensure it's ready
+        let buttonEnabled = false;
+        for (let retry = 0; retry < 10; retry++) {
+          const isDisabled = await dealButton.isDisabled().catch(() => true);
+          const buttonText = await dealButton.textContent().catch(() => '');
+          if (!isDisabled && (buttonText.includes('Deal') || buttonText.includes('deal'))) {
+            buttonEnabled = true;
+            console.log(`✅ [${USER_NAME}] Round ${i + 1}: Deal button enabled (text: "${buttonText}")`);
+            break;
+          }
+          if (retry < 9) {
+            console.log(`⏳ [${USER_NAME}] Round ${i + 1}: Waiting for deal button (attempt ${retry + 1}/10, disabled: ${isDisabled}, text: "${buttonText}")`);
+          }
+          await delay(500);
+        }
         
-        if (!isDisabled) {
+        if (buttonEnabled) {
           await dealButton.scrollIntoViewIfNeeded();
           await delay(500);
-          await dealButton.click({ timeout: 15000 });
-          await delay(3000); // Wait for cards to be dealt
-          console.log(`🃏 [${USER_NAME}] Round ${i + 1}: Dealt cards`);
-        } else {
-          console.log(`⏳ [${USER_NAME}] Deal button disabled (bet may not be placed), waiting...`);
-          await delay(2000);
-          // Try clicking a chip again
-          if (await chip50.count() > 0) {
-            await chip50.click();
-            await delay(1500);
-            // Try deal again
-            const dealBtn2 = page.locator('button#dealButton').first();
-            if (await dealBtn2.count() > 0 && !(await dealBtn2.isDisabled().catch(() => false))) {
-              await dealBtn2.click({ timeout: 15000 });
+          try {
+            await dealButton.click({ timeout: 15000 });
+            await delay(3000); // Wait for cards to be dealt (gRPC call)
+            console.log(`🃏 [${USER_NAME}] Round ${i + 1}: Dealt cards via gRPC`);
+          } catch (error) {
+            console.log(`⚠️ [${USER_NAME}] Round ${i + 1}: Error clicking deal button: ${error.message}`);
+            // Try one more time
+            await delay(1000);
+            try {
+              await dealButton.click({ timeout: 15000 });
               await delay(3000);
+              console.log(`🃏 [${USER_NAME}] Round ${i + 1}: Dealt cards after error retry`);
+            } catch (retryError) {
+              console.log(`❌ [${USER_NAME}] Round ${i + 1}: Could not deal cards after retry: ${retryError.message}`);
+              continue;
             }
+          }
+        } else {
+          console.log(`❌ [${USER_NAME}] Round ${i + 1}: Deal button remains disabled after waiting`);
+          console.log(`   Bet value: $${actualBetValue}, Verified: ${verifiedBet}`);
+          
+          // Try clicking a chip one more time and wait longer
+          if (await chip10.count() > 0) {
+            console.log(`   Attempting to place bet again...`);
+            await chip10.scrollIntoViewIfNeeded();
+            await delay(300);
+            await chip10.click({ timeout: 10000 });
+            await delay(3000); // Wait longer for bet to register and button to update
+            
+            // Re-check bet and button
+            const betTextAfter = await currentBetDisplay.textContent().catch(() => '');
+            const betValueAfter = parseInt(betTextAfter.replace(/[^0-9]/g, '')) || 0;
+            console.log(`   Bet after retry: $${betValueAfter}`);
+            
+            const dealBtn2 = page.locator('button#dealButton').first();
+            // Wait for button to update
+            for (let retry = 0; retry < 5; retry++) {
+              const isDisabled2 = await dealBtn2.isDisabled().catch(() => true);
+              const buttonText2 = await dealBtn2.textContent().catch(() => '');
+              if (!isDisabled2 && betValueAfter >= 10) {
+                await dealBtn2.scrollIntoViewIfNeeded();
+                await delay(500);
+                await dealBtn2.click({ timeout: 15000 });
+                await delay(3000);
+                console.log(`🃏 [${USER_NAME}] Round ${i + 1}: Dealt cards after final retry`);
+                break;
+              }
+              if (retry < 4) {
+                await delay(500);
+              } else {
+                console.log(`❌ [${USER_NAME}] Round ${i + 1}: Could not deal cards, button still disabled (bet: $${betValueAfter})`);
+                continue;
+              }
+            }
+          } else {
+            console.log(`❌ [${USER_NAME}] Round ${i + 1}: No chips available for retry`);
+            continue;
           }
         }
       } else {
-        console.log(`⚠️ [${USER_NAME}] Deal button not found`);
+        console.log(`⚠️ [${USER_NAME}] Round ${i + 1}: Deal button not found`);
         break;
       }
 

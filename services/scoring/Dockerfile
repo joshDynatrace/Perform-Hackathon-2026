@@ -46,3 +46,6 @@ ENTRYPOINT ["java", "-jar", "/app/scoring-service.jar"]
 
 
 
+
+
+

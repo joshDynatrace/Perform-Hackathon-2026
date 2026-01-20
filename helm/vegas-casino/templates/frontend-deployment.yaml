@@ -21,6 +21,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: frontend
       annotations:
+        dt.owner: '{{ .Values.global.teamIdentifier }}'
         prometheus.io/scrape: "true"
         prometheus.io/port: "{{ .Values.frontend.service.port }}"
         prometheus.io/path: "/health"
@@ -98,6 +99,8 @@ spec:
           value: "{{ include "vegas-casino.fullname" . }}-dice:{{ .Values.dice.service.grpcPort }}"
         - name: BLACKJACK_SERVICE_GRPC
           value: "{{ include "vegas-casino.fullname" . }}-blackjack:{{ .Values.blackjack.service.grpcPort }}"
+        - name: DASHBOARD_SERVICE_GRPC
+          value: "{{ include "vegas-casino.fullname" . }}-dashboard:{{ .Values.dashboard.service.grpcPort }}"
         # HTTP service endpoints (for fallback when gRPC is not available)
         - name: SLOTS_SERVICE_URL
           value: "http://{{ include "vegas-casino.fullname" . }}-slots:{{ .Values.slots.service.httpPort }}"

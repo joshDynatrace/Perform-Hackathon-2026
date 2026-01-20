@@ -532,10 +532,13 @@ app.get('/dashboard', (req, res) => {
   }
 });
 
-// Start server
+// Start HTTP server
 app.listen(PORT, () => {
-  console.log(`📊 Dashboard service listening on port ${PORT}`);
+  console.log(`📊 Dashboard HTTP server listening on port ${PORT}`);
   console.log(`📊 Scoring service URL: ${SCORING_SERVICE_URL}`);
 });
+
+// Start gRPC server
+require('./dashboard-service-grpc');
 
 

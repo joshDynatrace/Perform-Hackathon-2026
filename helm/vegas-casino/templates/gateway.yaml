@@ -14,6 +14,13 @@ metadata:
   {{- end }}
 spec:
   gatewayClassName: {{ .Values.gatewayAPI.gateway.className }}
+  {{- if .Values.global.codespace }}
+  infrastructure:
+    parametersRef:
+      name: fixed-nodeport-params
+      group: gateway.kgateway.dev
+      kind: GatewayParameters
+  {{- end }}
   listeners:
     {{- range .Values.gatewayAPI.gateway.listeners }}
     - name: {{ .name }}

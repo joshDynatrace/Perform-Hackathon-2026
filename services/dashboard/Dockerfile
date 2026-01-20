@@ -17,6 +17,9 @@ COPY services/common/opentelemetry.js ./common/opentelemetry.js
 COPY services/common/logger.js ./common/logger.js
 RUN chmod 644 ./common/*.js
 
+# Copy proto files
+COPY proto/ ./proto/
+
 # Expose port
 EXPOSE 3001
 
