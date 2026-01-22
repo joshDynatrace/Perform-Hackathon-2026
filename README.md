@@ -1,66 +1,53 @@
-# 🎰 Vegas Casino - Observability Hackathon Project
+# 🎰 Vegas Casino - Observability Hackathon
 
-A comprehensive microservices-based casino application designed for **observability hackathons** where attendees improve instrumentation, observability pipelines, and feature flag management.
+> ## 📖 **[👉 Open Hackathon Documentation Website](https://dynatrace-oss.github.io/Perform-Hackathon-2026) 👈**
+> 
+> **All hackathon instructions, challenges, and guides are available on our GitHub Pages website!**
 
-> 📚 **Full Documentation**: Serve the [MkDocs website](docs/index.md) locally with `make docs-serve` or build it with `make docs-build` for complete documentation, architecture details, and deployment guides.
+---
 
-## 🎮 Games Available
+## What is This Hackathon?
 
-The Vegas Casino features four different games, each implemented in different programming languages:
+The **Vegas Casino Observability Hackathon** is a hands-on learning experience where you'll:
 
-### 🎰 Slots (Node.js)
-- **Port**: 8081 (HTTP), 50051 (gRPC)
-- **Features**: Progressive jackpot, bonus rounds, cheat detection
-- **Technology**: Node.js/Express with gRPC support
+- 🚀 **Learn GitHub Copilot**: Master AI-assisted development with GitHub Copilot
+- 📊 **Improve Observability**: Enhance OpenTelemetry instrumentation using Copilot
+- 🔍 **Work with Dynatrace**: Query data, create dashboards, and build custom apps
+- 🎯 **Practice Real-World Skills**: Work with microservices, Kubernetes, and feature flags
 
-### 🔴 Roulette (Python)
-- **Port**: 8082 (HTTP), 50052 (gRPC)
-- **Features**: European roulette, multiple bet types, live wheel simulation, cheat codes
-- **Technology**: Python/Flask with gRPC support
+## 🚀 Quick Start
 
-### 🎲 Dice (Go)
-- **Port**: 8083 (HTTP), 50053 (gRPC)
-- **Features**: Craps-style dice game, pass-line and come bets
-- **Technology**: Go with gRPC support
+### 1. Fork This Repository
 
-### 🃏 Blackjack (Node.js)
-- **Port**: 8084 (HTTP), 50054 (gRPC)
-- **Features**: Traditional blackjack, double down, insurance, surrender options
-- **Technology**: Node.js/Express with gRPC support
+Fork [this repository](https://github.com/dynatrace-oss/Perform-Hackathon-2026) to your GitHub account.
 
-## 🚩 Feature Flags
+### 2. Launch Your Codespace
 
-The application uses **OpenFeature** with **flagd** for feature flag management. Feature flags are configured per game and can be toggled dynamically without redeploying services.
+The hackathon runs entirely in a **GitHub Codespace** (or local DevContainer) that provides:
 
-### Slots Feature Flags
-- **`slots.progressive-jackpot`**: Enable/disable progressive jackpot functionality
-- **`slots.bonus-rounds`**: Enable/disable bonus round features
-- **`slots.cheat-detection`**: Enable/disable cheat detection system
+- ✅ Pre-configured development environment
+- ✅ Kubernetes cluster (kind) running locally
+- ✅ All operators pre-installed (OpenFeature, Cert-Manager, Gateway API, Dynatrace Operator)
+- ✅ Complete application stack ready to deploy
 
-### Roulette Feature Flags
-- **`roulette.multiple-bets`**: Allow multiple simultaneous bets
-- **`roulette.live-wheel`**: Enable live wheel animation
-- **`roulette.cheat-detection`**: Enable cheat codes (ball control, wheel bias, etc.)
+**Launch from GitHub**: Click the green "Code" button → "Codespaces" → "Create codespace on main"
 
-### Blackjack Feature Flags
-- **`blackjack.double-down`**: Enable double down option
-- **`blackjack.insurance`**: Enable insurance bets
-- **`blackjack.surrender`**: Enable surrender option
+### 3. Start the Hackathon
 
-### Dice Feature Flags
-- **`dice.pass-line`**: Enable pass-line bets
-- **`dice.come-bets`**: Enable come bets
+Visit the **[Hackathon Documentation Website](https://dynatrace-oss.github.io/Perform-Hackathon-2026)** to:
+- View all challenges organized by track
+- Follow step-by-step instructions
+- Access detailed guides and resources
 
-All feature flags are managed via Kubernetes Custom Resources (`FeatureFlag` and `FeatureFlagSource`) and automatically injected via the OpenFeature Operator.
+## 🏗️ Architecture Overview
 
-## 🏗️ Architecture
+The Vegas Casino is a **microservices-based application** designed for observability practice:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Frontend Service                       │
-│                    (Node.js/Express)                       │
+│                    Frontend Service                         │
+│                  (Node.js/Express)                          │
 │                  Port: 3000 (HTTP)                         │
-│              Browser-side OpenTelemetry                    │
 └──────────────┬──────────────────────────────────────────────┘
                │
                ├──────────────────────────────────────┐
@@ -96,308 +83,130 @@ All feature flags are managed via Kubernetes Custom Resources (`FeatureFlag` and
 
 ### Key Components
 
-- **Frontend Service**: Web UI, user management, game selection
-- **Game Services**: Four independent microservices (Slots, Roulette, Dice, Blackjack)
-- **Scoring Service**: Leaderboards, game statistics, score tracking
-- **Dashboard Service**: Analytics and reporting dashboard
-- **Redis**: Game state storage and session management
-- **PostgreSQL**: Persistent storage for scores and game results
-- **OpenTelemetry Collector**: Receives and exports telemetry data
-- **OpenFeature Operator**: Manages flagd sidecar injection
+- **4 Game Services**: Slots (Node.js), Roulette (Python), Dice (Go), Blackjack (Node.js)
+- **Frontend Service**: Web UI for players (Node.js/Express)
+- **Scoring Service**: Leaderboards and statistics (Java/Spring Boot)
+- **Dashboard Service**: Analytics and reporting (Node.js)
+- **Data Stores**: Redis (sessions, state) and PostgreSQL (persistent data)
+- **Observability**: OpenTelemetry Collectors → Dynatrace Operator → Dynatrace Tenant
 
 ### Communication Patterns
 
 - **gRPC**: Primary communication between frontend and game services
-- **HTTP**: RESTful APIs for dashboard, scoring, and fallback communication
-- **Redis**: State management and caching
-- **PostgreSQL**: Persistent data storage
+- **HTTP**: REST APIs for dashboard and scoring
+- **Redis**: Direct connections for state management
+- **PostgreSQL**: Database connections for persistent storage
 
-## 🛠️ Building the Project
+## 💻 Development Environment (Codespace)
 
-The project uses **Make** for build automation. All Docker images can be built individually or all at once.
+The hackathon environment runs in a **GitHub Codespace** with everything pre-configured:
 
-### Prerequisites
+### What's Included
 
-- **Docker** or **Podman** installed
-- **Make** installed
-- **Access to container registry** (optional, for pushing images)
+- **Kind Kubernetes Cluster**: Local Kubernetes cluster for deployment
+- **OpenFeature Operator**: Automatic feature flag management
+- **Cert-Manager**: TLS certificate management
+- **Kubernetes Gateway API**: Modern ingress and routing
+- **Dynatrace Operator**: Observability integration
+- **OpenTelemetry Collectors**: Telemetry data processing
+- **All Tools**: kubectl, Helm, Terraform, Docker-in-Docker
 
-### Build Configuration
+### Automatic Setup
 
-Configure build settings in the Makefile or via environment variables:
+When your Codespace launches, it automatically:
+1. Creates the kind cluster
+2. Installs all operators
+3. Deploys the Vegas Casino application
+4. Configures Dynatrace monitoring
 
-```bash
-export REGISTRY=hrexed/vegasapp
-export IMAGE_TAG=0.11
-export BUILDER=podman  # or docker
-```
+**No manual setup required!** Everything is ready to use.
 
-### Build Individual Services
+## 🔄 Development Workflow
 
-```bash
-# Build frontend
-make docker-build-frontend
+!!! important "Important: Building Images"
 
-# Build game services
-make docker-build-slots
-make docker-build-roulette
-make docker-build-dice
-make docker-build-blackjack
+    **You don't build images locally!** All Docker images are built automatically via GitHub Actions when you:
+    
+    1. Make code changes in your forked repository
+    2. Commit and push your changes
+    3. GitHub Actions automatically builds new Docker images
+    4. Update your Helm deployment to use the new images
 
-# Build supporting services
-make docker-build-scoring
-make docker-build-dashboard
+### Making Changes
 
-# Build testing tools
-make docker-build-playwright
-make docker-build-k6
-```
+1. **Edit Source Code** in `services/` directory
+2. **Commit and Push** to your fork
+3. **GitHub Actions** builds Docker images automatically
+4. **Update Helm** deployment with new images
 
-### Build All Services
+See the [Development Guide](https://dynatrace-oss.github.io/Perform-Hackathon-2026/development/source-code/) for details.
 
-```bash
-make docker-build-all
-```
+## 🚩 Feature Flags
 
-This builds images for:
-- Frontend
-- Slots, Roulette, Dice, Blackjack
-- Scoring
-- Dashboard
-- Playwright
-- k6
+The application uses **OpenFeature** with **flagd** for feature flag management:
 
-### Push Images
+- **Game-specific flags**: Control features per game (progressive jackpot, bonus rounds, etc.)
+- **Casino-wide flags**: House advantage mode (reduces win probability)
+- **Dynamic updates**: Change flags without redeploying services
 
-```bash
-# Push all images
-make docker-push-all
-
-# Or push individual images
-make docker-push-frontend
-make docker-push-slots
-# ... etc
-```
-
-### Image Naming
-
-Images follow the pattern: `{REGISTRY}-{service}:{IMAGE_TAG}`
-
-Example: `hrexed/vegasapp-frontend:0.11`
-
-## 🚀 Deployment with Helm
-
-The application is deployed to Kubernetes using **Helm charts**. The deployment includes all services, databases, and supporting infrastructure.
-
-### Prerequisites
-
-Before deploying, ensure you have:
-
-- ✅ **Kubernetes cluster** (v1.24+)
-- ✅ **kubectl** configured
-- ✅ **Helm 3.x** installed
-- ✅ **OpenFeature Operator** installed (⚠️ **REQUIRED FIRST!**)
-- ✅ **Gateway API** installed (for ingress)
-- ✅ **Docker images** built and pushed to registry
-
-### Step 1: Install OpenFeature Operator
-
-**⚠️ CRITICAL**: The OpenFeature Operator **must be installed BEFORE** deploying the application.
-
-```bash
-# Add Helm repository
-helm repo add openfeature https://open-feature.github.io/open-feature-operator
-helm repo update
-
-# Install operator
-helm install open-feature-operator openfeature/open-feature-operator \
-  --namespace open-feature-system \
-  --create-namespace \
-  --wait
-
-# Verify installation
-kubectl get pods -n open-feature-system
-```
-
-### Step 2: Install Gateway API (if not already installed)
-
-```bash
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/standard-install.yaml
-```
-
-### Step 3: Deploy Application
-
-```bash
-# Install with default values
-helm install vegas-casino ./helm/vegas-casino
-
-# Or with custom configuration
-helm install vegas-casino ./helm/vegas-casino \
-  --set global.imageTag=0.11 \
-  --set frontend.replicaCount=2 \
-  --set k6.enabled=true \
-  --set playwright.enabled=true
-```
-
-### Step 4: Verify Deployment
-
-```bash
-# Check all resources
-kubectl get all -n vegas-casino
-
-# Check pods
-kubectl get pods -n vegas-casino
-
-# Check services
-kubectl get svc -n vegas-casino
-
-# Check Gateway
-kubectl get gateway -n vegas-casino
-kubectl get httproute -n vegas-casino
-```
-
-### Accessing the Application
-
-```bash
-# Get external IP
-kubectl get gateway vegas-casino-gateway -n vegas-casino \
-  -o jsonpath='{.status.addresses[0].value}'
-
-# Access frontend
-curl http://<EXTERNAL_IP>/
-
-# Access dashboard
-curl http://<EXTERNAL_IP>/dashboard
-```
-
-### Configuration
-
-Edit `helm/vegas-casino/values.yaml` or use `--set` flags:
-
-```yaml
-global:
-  imageRegistry: hrexed/vegasapp
-  imageTag: "0.11"
-
-frontend:
-  enabled: true
-  replicaCount: 2
-
-opentelemetry:
-  enabled: true
-  exporter:
-    endpoint: "otel-collector.default.svc.cluster.local:4317"
-    protocol: "grpc"
-
-openfeature:
-  enabled: true
-
-k6:
-  enabled: false
-  vus: "10"
-  duration: "5m"
-
-playwright:
-  enabled: false
-  runContinuously: "false"
-  iterations: "1"
-```
-
-### Upgrade Deployment
-
-```bash
-helm upgrade vegas-casino ./helm/vegas-casino \
-  --set global.imageTag=0.12
-```
-
-### Rollback
-
-```bash
-# List revisions
-helm history vegas-casino
-
-# Rollback to previous version
-helm rollback vegas-casino
-```
-
-### Uninstall
-
-```bash
-helm uninstall vegas-casino
-```
-
-**Note**: This does NOT uninstall the OpenFeature Operator.
-
-## 📊 Observability
-
-The application is fully instrumented with **OpenTelemetry**:
-
-- **Distributed Tracing**: End-to-end trace correlation across all services
-- **Metrics**: Application and business metrics
-- **Logging**: Structured JSON logging
-- **Feature Flag Tracing**: Feature flag evaluations are traced
-- **Database Instrumentation**: Redis and PostgreSQL operations are instrumented
-
-### OpenTelemetry Configuration
-
-- **Protocol**: gRPC (OTLP)
-- **Endpoint**: `otel-collector.default.svc.cluster.local:4317`
-- **Export**: Automatic via OpenTelemetry SDKs
-
-## 🧪 Testing
-
-The project includes two types of automated testing:
-
-### Playwright (E2E Automation)
-- Simulates complete user journeys
-- Tests all games, feature flags, and dashboard
-- Configurable via Helm values
-
-### k6 (Load Testing)
-- Performance and scalability testing
-- Configurable virtual users and duration
-- Generates realistic traffic and traces
-
-See the [Testing Documentation](docs/testing/index.md) for details.
+See the [Feature Flags Guide](https://dynatrace-oss.github.io/Perform-Hackathon-2026/development/feature-flags/) for details.
 
 ## 📚 Documentation
 
-Comprehensive documentation is available via **MkDocs**:
+### 📖 **[👉 Full Documentation Website](https://dynatrace-oss.github.io/Perform-Hackathon-2026) 👈**
+
+The complete documentation includes:
+
+- **Hackathon Challenges**: All challenges organized by track (GitHub Copilot, Dynatrace, Bonus)
+- **Environment Setup**: DevContainer and Codespace details
+- **Development Guides**: Source code locations, GitHub Actions, Helm updates
+- **Architecture**: System design and component details
+- **Feature Flags**: Complete feature flag documentation
+
+### Local Documentation
+
+To serve documentation locally:
 
 ```bash
-# Serve documentation locally
-make docs-serve
+# Install dependencies
+pip install mkdocs-material pymdown-extensions mkdocs-git-revision-date-localized-plugin
 
-# Build static documentation
-make docs-build
+# Serve locally
+mkdocs serve
+
+# Access at http://127.0.0.1:8000
 ```
 
-Documentation includes:
-- Architecture details
-- Component descriptions
-- Build instructions
-- Deployment guides
-- Testing guides
-- Feature flag management
+## 🎯 Hackathon Challenges
 
-## 🎯 Hackathon Objectives
+The hackathon is organized into tracks:
 
-This project is designed for **observability hackathons** where attendees will:
+### GitHub Copilot Track
+- Introduction to GitHub Copilot
+- Best Practices When Using Copilot
+- Extending GitHub Copilot with Model Context Protocol
 
-1. **Improve Instrumentation**: Add and enhance OpenTelemetry spans
-2. **Optimize Pipelines**: Configure and tune observability data pipelines
-3. **Implement Feature Flags**: Integrate and manage feature flags
-4. **Enhance Testing**: Create and run load tests
-5. **Practice Deployment**: Deploy and manage in Kubernetes
+### Dynatrace Track
+- Launching your Environment
+- Prompt your observability data
+- Improve your OpenTelemetry instrumentation
+- Improve your Dynatrace Setup
+
+### Bonus Challenges (Optional)
+- Customizing GitHub Copilot in Your IDE
+- Build a Custom Dynatrace App
+
+**👉 [View All Challenges on the Documentation Website](https://dynatrace-oss.github.io/Perform-Hackathon-2026/overview/hackathon-index/)**
 
 ## 🛠️ Technology Stack
 
 - **Languages**: Node.js, Python, Go, Java
 - **Frameworks**: Express.js, Flask, Spring Boot
 - **Databases**: Redis, PostgreSQL
-- **Observability**: OpenTelemetry, OpenFeature
+- **Observability**: OpenTelemetry, Dynatrace
+- **Feature Flags**: OpenFeature, flagd
 - **Orchestration**: Kubernetes, Helm
-- **Testing**: Playwright, k6
+- **Infrastructure**: Kind, GitHub Codespaces
 
 ## 📝 License
 
@@ -405,8 +214,15 @@ This project is designed for educational and hackathon purposes.
 
 ## 🤝 Contributing
 
-See [Contributing Guide](docs/contributing.md) for details on how to contribute to the project.
+This repository is used for hackathons. For contributions, please see the [Contributing Guide](https://dynatrace-oss.github.io/Perform-Hackathon-2026/contributing/) on the documentation website.
 
 ---
 
-**Ready to get started?** Serve the documentation locally with `make docs-serve` or start with [Building the Project](#-building-the-project)!
+## 🎓 Get Started Now!
+
+1. **Fork the repository** to your GitHub account
+2. **Launch a Codespace** from your fork
+3. **Visit the [Documentation Website](https://dynatrace-oss.github.io/Perform-Hackathon-2026)** to start the hackathon
+4. **Begin with Challenge 01** - Introduction to GitHub Copilot
+
+**👉 [Open Hackathon Documentation](https://dynatrace-oss.github.io/Perform-Hackathon-2026) 👈**
